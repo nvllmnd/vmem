@@ -1,0 +1,9 @@
+[package]
+name = "vmem"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { version = "1.0.103", default-features = false }
+bytemuck = { version = "1.25.0", default-features = false, features = ["align_offset", "alloc_uninit", "bytemuck_derive", "const_zeroed", "derive", "extern_crate_alloc", "min_const_generics", "must_cast", "must_cast_extra", "nightly_docs", "nightly_float", "pod_saturating", "transparentwrapper_extra", "unsound_ptr_pod_impl", "zeroable_atomics", "zeroable_maybe_uninit"] }
+libc = { version = "0.2.186", default-features = false, features = ["align", "const-extern-fn", "extra_traits"] }
