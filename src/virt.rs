@@ -9,10 +9,9 @@
 //!
 use core::{cell::UnsafeCell, ops::Deref, ptr::NonNull};
 
-use alloc::{boxed::Box, rc::Rc, sync::Arc};
-use anyhow::{bail, ensure};
+use anyhow::ensure;
 
-use crate::{os::*, page::PageAllocator};
+use crate::os::{RemapMode, VmapMode, valloc_ex};
 
 /// @brief a block of virtual operating system virtual memory
 /// @detail allocated by a call to [libc::mmap] and deallocated by [libc::munmap]
@@ -79,8 +78,7 @@ impl Vmem {
 
             let ptr = NonNull::new_unchecked(ptr as *mut _).cast::<u8>();
             let ptr = NonNull::slice_from_raw_parts(ptr, new_size);
-            let ptr = NonNull::new_unchecked(ptr.as_ptr() as *mut Vmem);
-            ptr
+            NonNull::new_unchecked(ptr.as_ptr() as *mut Vmem)
         };
         Some(ptr)
     }

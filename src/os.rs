@@ -6,6 +6,7 @@
 
 use core::ptr::{NonNull, null_mut};
 
+use alloc::rc::Rc;
 use anyhow::{bail, ensure};
 
 // TODO: Implement more flags compatible with private anonymous memory mappings

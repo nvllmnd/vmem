@@ -12,25 +12,38 @@ use anyhow::ensure;
 
 use crate::{page::PageAllocator, virt::Vmem};
 
-/// @brief a bump-style Arena Allocator
-#[derive(Debug)]
 #[repr(C)]
-pub struct Arena<A: Allocator = PageAllocator> {
-    mem: Rc<Vmem, A>,
+#[derive(Debug)]
+struct ArenaInner {
     used: Cell<u64>,
+    mem: Vmem,
 }
 
-impl<A> Clone for Arena<A>
-where
-    A: Allocator + Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            mem: Rc::clone(&self.mem),
-            used: Cell::new(self.used_bytes() as u64),
-        }
+impl ArenaInner {
+    pub const fn used_bytes(&self) -> u64 {
+        self.used.get()
+    }
+
+    pub const fn vmem(&self) -> &Vmem {
+        &self.mem
     }
 }
+
+/// @brief a bump-style Arena Allocator
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct Arena<A: Allocator = PageAllocator>(Rc<ArenaInner, A>);
+
+// where
+//     A: Allocator + Clone,
+// {
+//     fn clone(&self) -> Self {
+//         Self {
+//             mem: Rc::clone(&self.mem),
+//             used: Cell::new(self.used_bytes() as u64),
+//         }
+//     }
+// }
 
 impl Arena<PageAllocator> {
     #[inline]
@@ -46,44 +59,43 @@ where
     pub fn new_in(size_bytes: usize, alloc: A) -> Self {
         let mem = Rc::<[u8], A>::new_zeroed_slice_in(size_bytes, alloc);
         let (mem, alloc) = Rc::into_raw_with_allocator(mem);
-        let mem = mem as *const Vmem;
-        let mem = unsafe { Rc::from_raw_in(mem, alloc) };
+        let mem = mem as *mut ArenaInner;
+        unsafe { core::ptr::write(&raw mut (*mem).used, Cell::new(0)) };
+        let mem = unsafe { Rc::from_raw_in(mem as *const _, alloc) };
 
-        Self {
-            mem,
-            used: Cell::new(0),
-        }
+        Self(mem)
     }
 
     pub fn resize(&self, ptr: NonNull<u8>, old_layout: Layout, new_layout: Layout) -> bool {
         let top = self.top_aligned(new_layout.align()).unwrap();
         let last = unsafe { top.sub(old_layout.size()) };
-        assert!(last >= self.mem.begin_ptr());
+        assert!(last >= self.0.vmem().begin_ptr());
         if last == ptr {
             let delta = new_layout.size() as isize - old_layout.size() as isize;
             let result = self.used_bytes() as isize + delta;
             assert!(result >= 0);
-            self.used.set(result as u64);
+            self.0.used.set(result as u64);
             true
         } else {
             false
         }
     }
 
-    pub const fn used_bytes(&self) -> usize {
-        self.used.get() as usize
+    #[inline(always)]
+    pub fn used_bytes(&self) -> usize {
+        self.0.used_bytes() as usize
     }
 
     #[inline]
     pub fn allocator(&self) -> &A {
-        Rc::allocator(&self.mem)
+        Rc::allocator(&self.0)
     }
 
     fn top_aligned(&self, align: usize) -> anyhow::Result<NonNull<u8>> {
         let used = self.used_bytes();
-        let ptr = unsafe { self.mem.as_ptr().cast::<u8>().add(used) };
+        let ptr = unsafe { self.0.vmem().as_ptr().cast::<u8>().add(used) };
         ensure!(
-            self.mem.contains(ptr),
+            self.0.vmem().contains(ptr),
             "aligning pointer Arena top pointer to alignment: {align} by offset {used} creates a pointer that lies outside the range of this VirtMemory!"
         );
         let offset = ptr.align_offset(align);
@@ -108,7 +120,7 @@ where
         };
 
         let end = unsafe { ptr.add(layout.size()) };
-        if end >= self.mem.end_ptr() {
+        if end >= self.0.vmem().end_ptr() {
             return core::result::Result::Err(alloc::alloc::AllocError);
         }
 
@@ -116,7 +128,7 @@ where
         assert!(size >= 0);
 
         let res = self.used_bytes() + size as usize;
-        self.used.set(res as u64);
+        self.0.used.set(res as u64);
 
         let ptr = NonNull::slice_from_raw_parts(ptr, layout.size());
         Ok(ptr)
@@ -147,7 +159,7 @@ where
                 )
             };
             let delta = new_layout.size() - old_layout.size();
-            self.used.set(self.used_bytes() as u64 + delta as u64);
+            self.0.used.set(self.used_bytes() as u64 + delta as u64);
             Ok(new_ptr)
         }
     }
@@ -183,11 +195,11 @@ where
         );
         let top = self.top_aligned(new_layout.align()).unwrap();
         let last = unsafe { top.sub(old_layout.size()) };
-        assert!(last >= self.mem.begin_ptr());
+        assert!(last >= self.0.vmem().begin_ptr());
         if last == ptr {
             let delta = new_layout.size() as isize - old_layout.size() as isize;
             let result = core::cmp::max(0, self.used_bytes() as isize + delta);
-            self.used.set(result as u64);
+            self.0.used.set(result as u64);
         }
         Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()))
     }

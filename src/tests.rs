@@ -1,6 +1,11 @@
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::{arena::Arena, os::megabytes, virt::VmemBox};
+use crate::{
+    arena::Arena,
+    os::{gigabytes, kilobytes, megabytes},
+    ptr::Vbox,
+    virt::VmemBox,
+};
 
 #[test]
 fn can_create_vmem() -> anyhow::Result<()> {
@@ -44,5 +49,22 @@ fn arena_works() -> anyhow::Result<()> {
         assert_eq!(v[x], (x * x) as f32);
     });
 
+    Ok(())
+}
+
+#[test]
+fn vmem_lock_and_prepop() -> anyhow::Result<()> {
+    let vm = Vbox::new(gigabytes(4));
+    vm.prepopulate(vm.begin_ptr(), kilobytes(16))?;
+    vm.mlock(vm.begin_ptr(), kilobytes(24))?;
+    vm.munlock(vm.begin_ptr(), kilobytes(12))?;
+    Ok(())
+}
+
+#[test]
+fn vmem_free_region() -> anyhow::Result<()> {
+    let vm = Vbox::new(megabytes(24));
+    let p = unsafe { vm.begin_ptr().add(megabytes(20)) };
+    unsafe { vm.free_region(p, megabytes(3))? };
     Ok(())
 }
